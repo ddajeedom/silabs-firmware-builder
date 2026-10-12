@@ -1,0 +1,163 @@
+name: SAV - Compiler SONOFF diagnostic
+'on':
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+    - name: Recuperer le projet
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+    - name: Preparer le diagnostic
+      run: |
+        cat > /tmp/sav_prepare.py <<'SAV_PY'
+        from pathlib import Path
+        import hashlib
+        from ruamel.yaml import YAML
+        root = Path('.')
+        checks = {'src/zigbee_router/app.c': '032dbe36816414d2c2f7f3d9f73405100a7f4206d7cac037a4814862ad748ea8', 'src/zigbee_router/zigbee_router.slcp': 'ab89b4b8358df120f87371d88d59c232946d605d2ce3e080713e7eb2da01674c', 'manifests/sonoff/sonoff_zbdonglee_zigbee_router.yaml': '2f82adadf02f2690f1791129ae95a23d4dda69b3b9fd03d8aea7728eeb30ce80'}
+        for name, expected in checks.items():
+            actual = hashlib.sha256((root / name).read_bytes()).hexdigest()
+            if actual != expected:
+                raise SystemExit('Base modifiee : verifier le correctif avant compilation : ' + name)
+        yaml = YAML()
+        project = root / 'src/zigbee_router/zigbee_router.slcp'
+        data = yaml.load(project)
+        ids = {item['id'] for item in data['component']}
+        for component in ('zigbee_cli', 'zigbee_core_cli', 'zigbee_zcl_cli'):
+            if component not in ids:
+                data['component'].append({'id': component})
+        settings = {
+            'SLI_ZIGBEE_PRIMARY_NETWORK_SECURITY_TYPE': 'SLI_ZIGBEE_NETWORK_SECURITY_TYPE_3_0',
+            'SL_CLI_PROMPT_STRING': '\"Z3RouterUSBDongle>\"',
+            'SL_IOSTREAM_USART_VCOM_RX_BUFFER_SIZE': 256,
+            'SL_ZIGBEE_DEBUG_APP_GROUP_ENABLED': 1,
+            'SL_ZIGBEE_DEBUG_APP_GROUP_RUNTIME_DEFAULT': 1,
+            'SL_ZIGBEE_DEBUG_CORE_GROUP_ENABLED': 1,
+            'SL_ZIGBEE_DEBUG_CORE_GROUP_RUNTIME_DEFAULT': 1,
+            'SL_ZIGBEE_DEBUG_PRINTS_ZCL_LEGACY_AF_DEBUG_ENABLED': 1,
+            'SL_ZIGBEE_DEBUG_PRINTS_ZCL_LEGACY_AF_DEBUG_RUNTIME_DEFAULT': 1,
+        }
+        for name, value in settings.items():
+            found = [entry for entry in data['configuration'] if entry['name'] == name]
+            if found:
+                if len(found) != 1:
+                    raise SystemExit('Configuration ambigue : ' + name)
+                found[0]['value'] = value
+            else:
+                data['configuration'].append({'name': name, 'value': value})
+        with project.open('w') as stream:
+            yaml.dump(data, stream)
+        app = root / 'src/zigbee_router/app.c'
+        text = app.read_text()
+        # No automatic fresh commissioning on startup, network loss, or failed join.
+        retry = 'sl_zigbee_af_event_set_delay_ms(&commissioning_event, NWK_STEERING_COOLDOWN_MS);'
+        assert text.count(retry) == 2
+        text = text.replace(retry, 'sl_zigbee_af_event_set_inactive(&commissioning_event);')
+        init = '  sl_zigbee_af_event_set_active(&commissioning_event);\n}\n\n/** @brief Complete network steering.'
+        assert text.count(init) == 1
+        text = text.replace(init, '  sl_zigbee_app_debug_println("[SAV] diagnostic v1 - routeur - 115200 - integration manuelle");\n}\n\n/** @brief Complete network steering.')
+        assert 'bool sl_zigbee_af_pre_zdo_message_received_cb(' not in text
+        text += '\n' + r'''/* SAV diagnostic: passive logging of selected ZDO messages only. */
+        #include <stdio.h>
+        #include <stdint.h>
+        #include <stdbool.h>
+
+        bool sl_zigbee_af_pre_zdo_message_received_cb(sl_802154_short_addr_t sender,
+                                                     sl_zigbee_aps_frame_t *aps,
+                                                     uint8_t *message,
+                                                     uint16_t length)
+        {
+          if (aps == NULL || message == NULL || length == 0) {
+            return false;
+          }
+          switch (aps->clusterId) {
+            case 0x0013: /* Device announce */
+            case 0x8000: /* NWK address */
+            case 0x8001: /* IEEE address */
+            case 0x8002: /* Node descriptor */
+            case 0x8004: /* Simple descriptor */
+            case 0x8005: /* Active endpoints */
+            case 0x8006: /* Match descriptor */
+            case 0x8031: /* Management LQI */
+              break;
+            default:
+              return false;
+          }
+          for (uint32_t offset = 0; offset < length; offset += 32U) {
+            char line[192];
+            int used = snprintf(line, sizeof(line),
+                                "[ZDO RAW] src=0x%04X cluster=0x%04X len=%u offset=%lu hex=",
+                                (unsigned int)sender, (unsigned int)aps->clusterId,
+                                (unsigned int)length, (unsigned long)offset);
+            if (used < 0 || (size_t)used >= sizeof(line)) {
+              return false;
+            }
+            uint32_t end = offset + 32U;
+            if (end > length) {
+              end = length;
+            }
+            for (uint32_t i = offset; i < end; ++i) {
+              int written = snprintf(line + used, sizeof(line) - (size_t)used,
+                                     "%02X", (unsigned int)message[i]);
+              if (written != 2 || (size_t)used + 2U >= sizeof(line)) {
+                return false;
+              }
+              used += written;
+            }
+            sl_zigbee_app_debug_println("%s", line);
+          }
+          /* Continue normal stack processing; do not consume the message. */
+          return false;
+        }
+        '''
+        app.write_text(text)
+        print('Integration SAV appliquee : CLI, ZDO RAW, routeur Zigbee 3.0, integration manuelle.')
+
+        SAV_PY
+    - name: Charger les outils Silicon Labs
+      env:
+        BUILD_HASH: ${{ hashFiles('Dockerfile', 'requirements.txt') }}
+      run: |
+        set -euo pipefail
+        tag="${BUILD_HASH:0:16}"
+        image="ghcr.io/nerivec/silabs-firmware-builder:$tag"
+        if ! docker pull "$image"; then
+          image="sav-builder:local"
+          docker build --tag "$image" .
+        fi
+        printf 'SAV_BUILD_IMAGE=%s
+        ' "$image" >> "$GITHUB_ENV"
+        docker image inspect "$image" --format '{{json .RepoDigests}}' > sav-build-image.txt
+    - name: Compiler le firmware de test
+      run: |
+        set -euo pipefail
+        mkdir -p diagnostic-resultats
+        cp /tmp/sav_prepare.py diagnostic-resultats/
+        cp sav-build-image.txt diagnostic-resultats/
+        docker run --rm \
+          -v "$GITHUB_WORKSPACE:/repo" \
+          -w /repo --entrypoint /bin/sh "$SAV_BUILD_IMAGE" -c '
+            set -eu
+            /opt/venv/bin/python3 diagnostic-resultats/sav_prepare.py
+            /opt/venv/bin/python3 tools/build_project.py \
+              --manifest manifests/sonoff/sonoff_zbdonglee_zigbee_router.yaml \
+              --build-dir build --output-dir outputs \
+              --output gbl --output out \
+              --repo-owner ddajeedom --repo-hash "$(git rev-parse --short=8 HEAD)"
+          ' 2>&1 | tee diagnostic-resultats/compilation.log
+        cp src/zigbee_router/app.c src/zigbee_router/zigbee_router.slcp diagnostic-resultats/
+        cp outputs/*.gbl outputs/*.out diagnostic-resultats/
+        sha256sum diagnostic-resultats/*.gbl > diagnostic-resultats/SHA256SUMS.txt
+        printf '%s
+        ' 'FIRMWARE EXPERIMENTAL. Compilation seulement. Ne pas flasher avant revue des resultats et preparation du retour au firmware precedent. Compatibilite HTML, reseau et materiel pas encore validee.' > diagnostic-resultats/LIRE_AVANT_FLASH.txt
+    - name: Conserver les resultats meme en cas d erreur
+      if: ${{ always() }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: SAV-SONOFF-DIAGNOSTIC-A-VERIFIER
+        path: diagnostic-resultats/
+        if-no-files-found: warn
+        retention-days: 14
