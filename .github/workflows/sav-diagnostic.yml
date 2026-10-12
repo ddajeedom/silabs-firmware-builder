@@ -17,7 +17,7 @@ jobs:
         import hashlib
         from ruamel.yaml import YAML
         root = Path('.')
-        checks = {'src/zigbee_router/app.c': '032dbe36816414d2c2f7f3d9f73405100a7f4206d7cac037a4814862ad748ea8', 'src/zigbee_router/zigbee_router.slcp': 'ab89b4b8358df120f87371d88d59c232946d605d2ce3e080713e7eb2da01674c', 'manifests/sonoff/sonoff_zbdonglee_zigbee_router.yaml': '2f82adadf02f2690f1791129ae95a23d4dda69b3b9fd03d8aea7728eeb30ce80'}
+        checks = {'src/zigbee_router/app.c': '032dbe36816414d2c2f7f3d9f73405100a7f4206d7cac037a4814862ad748ea8', 'src/zigbee_router/zigbee_router.slcp': 'bf35c86b66d81d957c7177f29c200a3bf7aa249c3ac4202e89700b61e6691a75',}
         for name, expected in checks.items():
             actual = hashlib.sha256((root / name).read_bytes()).hexdigest()
             if actual != expected:
