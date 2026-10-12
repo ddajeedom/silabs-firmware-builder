@@ -19,10 +19,10 @@ sdk_extension:
   - id: router_beacon_filter
     vendor: nabucasa
     version: 1.0.0
+component:
   - id: cli
     instance:
       - inst
-component:
   - id: sl_main
   - id: iostream_recommended_stream
   - id: iostream_usart
