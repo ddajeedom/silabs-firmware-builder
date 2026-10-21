@@ -280,7 +280,7 @@ static void sav_gp_read_cmd(sl_cli_command_arg_t *args)
   }
   /* GP address application ID 0 (4-octet Source ID), requete par GPD ID.
    * L'option 0x00 exige verification sur une reponse reelle du GPS cible. */
-  const uint16_t len = sl_zigbee_af_fill_command_green_power_cluster_gp_sink_table_request_smart(
+  const uint16_t len = sl_zigbee_af_fill_command_green_power_cluster_gp_sink_table_request(
                          0x00U, source_id, ieee, 0U, 0U);
   if (len == 0U) {
     sl_zigbee_app_debug_println("[SAV-GP] ECHEC: preparation ZCL");
