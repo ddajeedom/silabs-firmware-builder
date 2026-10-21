@@ -293,10 +293,15 @@ static void sav_gp_read_cmd(sl_cli_command_arg_t *args)
 }
 
 static const sl_cli_command_info_t sav_gp_read_info =
-  SL_CLI_COMMAND(sav_gp_read_cmd, "GP Sink Table read request: <NWK> <GPD Source ID> <endpoint> (lecture seule)",
-                 SL_CLI_ARG_UINT16, SL_CLI_ARG_UINT32, SL_CLI_ARG_UINT8, SL_CLI_ARG_END);
-static const sl_cli_command_entry_t sav_gp_table[] = {
-  { "sav_gp_read", &sav_gp_read_info, false },
+  SL_CLI_COMMAND(
+    sav_gp_read_cmd,
+    "GP Sink Table read request (lecture seule)",
+    "Adresse NWK, Source ID Green Power, endpoint",
+    SL_CLI_ARG_UINT16,
+    SL_CLI_ARG_UINT32,
+    SL_CLI_ARG_UINT8,
+    SL_CLI_ARG_END
+  );
   { NULL, NULL, false }
 };
 static sl_cli_command_group_t sav_gp_group = { { NULL }, false, sav_gp_table };
