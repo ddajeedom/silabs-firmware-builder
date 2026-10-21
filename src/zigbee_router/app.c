@@ -142,8 +142,11 @@ void sl_zigbee_af_stack_status_cb(sl_status_t status)
 /** @brief Init
  * Application init function
  */
+static void sav_gp_register_cli(void);
+
 void sl_zigbee_af_main_init_cb(void)
 {
+  sav_gp_register_cli();
   sl_zigbee_af_event_init(&commissioning_event, commissioning_event_handler);
 
   #if defined(SL_CATALOG_SIMPLE_BUTTON_PRESENT)
@@ -247,3 +250,59 @@ void sl_button_on_change(const sl_button_t *handle)
 #endif // SL_CATALOG_SIMPLE_BUTTON_PRESENT
 
 #endif //#if (LARGE_NETWORK_TESTING == 0)
+
+
+/* -----------------------------------------------------------------------
+ * SAV Green Power : demande en LECTURE SEULE, A VALIDER SUR SDK 2026.6.1.
+ * Cette fonction n'est pas un commissionnement et n'ecrit aucune GP Sink Table.
+ * La commande n'est declenchee que par l'utilisateur via le CLI.
+ * ----------------------------------------------------------------------- */
+#include "sl_cli.h"
+#include "sl_cli_instances.h"
+#include "app/framework/util/af-main.h"
+#include "app/framework/util/attribute-storage.h"
+#include <stdint.h>
+
+static void sav_gp_read_cmd(sl_cli_command_arg_t *args)
+{
+  const uint16_t target = (uint16_t)sl_cli_get_argument_uint16(args, 0);
+  const uint32_t source_id = (uint32_t)sl_cli_get_argument_uint32(args, 1);
+  const uint8_t source_ep = 242U;
+  const uint8_t destination_ep = (uint8_t)sl_cli_get_argument_uint8(args, 2);
+  uint8_t ieee[8] = { 0 };
+  if (sl_zigbee_af_network_state() != SL_ZIGBEE_JOINED_NETWORK) {
+    sl_zigbee_app_debug_println("[SAV-GP] ECHEC: routeur hors reseau");
+    return;
+  }
+  if (destination_ep == 0U || target == 0xFFFFU) {
+    sl_zigbee_app_debug_println("[SAV-GP] ECHEC: cible ou endpoint non valide");
+    return;
+  }
+  /* GP address application ID 0 (4-octet Source ID), requete par GPD ID.
+   * L'option 0x00 exige verification sur une reponse reelle du GPS cible. */
+  const uint16_t len = sl_zigbee_af_fill_command_green_power_cluster_gp_sink_table_request_smart(
+                         0x00U, source_id, ieee, 0U, 0U);
+  if (len == 0U) {
+    sl_zigbee_app_debug_println("[SAV-GP] ECHEC: preparation ZCL");
+    return;
+  }
+  sl_zigbee_af_set_command_endpoints(source_ep, destination_ep);
+  const sl_status_t status = sl_zigbee_af_send_command_unicast(SL_ZIGBEE_OUTGOING_DIRECT, target);
+  sl_zigbee_app_debug_println("[SAV-GP] REQUETE TX cible=0x%04X ep=%u gpd=0x%08lX status=0x%lX (pas de preuve de reponse)",
+                              target, destination_ep, (unsigned long)source_id, (unsigned long)status);
+}
+
+static const sl_cli_command_info_t sav_gp_read_info =
+  SL_CLI_COMMAND(sav_gp_read_cmd, "GP Sink Table read request: <NWK> <GPD Source ID> <endpoint> (lecture seule)",
+                 SL_CLI_ARG_UINT16, SL_CLI_ARG_UINT32, SL_CLI_ARG_UINT8, SL_CLI_ARG_END);
+static const sl_cli_command_entry_t sav_gp_table[] = {
+  { "sav_gp_read", &sav_gp_read_info, false },
+  { NULL, NULL, false }
+};
+static sl_cli_command_group_t sav_gp_group = { { NULL }, false, sav_gp_table };
+static void sav_gp_register_cli(void)
+{
+  if (!sl_cli_command_add_command_group(sl_cli_inst_handle, &sav_gp_group)) {
+    sl_zigbee_app_debug_println("[SAV-GP] CLI enregistrement impossible");
+  }
+}
