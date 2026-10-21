@@ -302,6 +302,8 @@ static const sl_cli_command_info_t sav_gp_read_info =
     SL_CLI_ARG_UINT8,
     SL_CLI_ARG_END
   );
+static const sl_cli_command_entry_t sav_gp_table[] = {
+  { "sav_gp_read", &sav_gp_read_info, false },
   { NULL, NULL, false }
 };
 static sl_cli_command_group_t sav_gp_group = { { NULL }, false, sav_gp_table };
