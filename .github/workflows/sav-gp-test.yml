@@ -1,7 +1,7 @@
 
 name: SAV GP - Compilation test
 
-on:
+'on':
   push:
     branches:
       - sav-gp-test
@@ -9,7 +9,7 @@ on:
       - "src/zigbee_router/**"
       - "manifests/sonoff/**"
       - ".github/workflows/sav-gp-test.yml"
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -23,11 +23,24 @@ jobs:
       - name: Recuperer les sources
         uses: actions/checkout@v4
 
-      - name: Preparer le compilateur Silicon Labs
+      - name: Preparer le diagnostic
+        run: |
+          mkdir -p diagnostic-gp
+          echo "Firmware experimental - NE PAS FLASHER" \
+            > diagnostic-gp/NE_PAS_FLASHER.txt
+
+      - name: Recuperer le compilateur Silicon Labs
+        env:
+          BUILD_HASH: ${{ hashFiles('Dockerfile', 'requirements.txt') }}
         run: |
           set -euo pipefail
-          docker build -t sav-gp-builder .
-          mkdir -p diagnostic-gp
+          TAG="${BUILD_HASH:0:16}"
+          IMAGE="ghcr.io/nerivec/silabs-firmware-builder:$TAG"
+          echo "Image utilisee : $IMAGE"
+
+          docker pull "$IMAGE"
+
+          echo "SAV_BUILD_IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
       - name: Compiler SONOFF Green Power
         run: |
@@ -36,7 +49,7 @@ jobs:
             -v "$GITHUB_WORKSPACE:/repo" \
             -w /repo \
             --entrypoint /bin/sh \
-            sav-gp-builder -c '
+            "$SAV_BUILD_IMAGE" -c '
               set -eu
               /opt/venv/bin/python3 tools/build_project.py \
                 --manifest manifests/sonoff/sonoff_zbdonglee_zigbee_router.yaml \
