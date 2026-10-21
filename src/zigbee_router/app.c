@@ -302,7 +302,7 @@ static const sl_cli_command_entry_t sav_gp_table[] = {
 static sl_cli_command_group_t sav_gp_group = { { NULL }, false, sav_gp_table };
 static void sav_gp_register_cli(void)
 {
-  if (!sl_cli_command_add_command_group(sl_cli_inst_handle, &sav_gp_group)) {
+  if (!sl_cli_command_add_command_group(sl_cli_default_handle, &sav_gp_group)) {
     sl_zigbee_app_debug_println("[SAV-GP] CLI enregistrement impossible");
   }
 }
