@@ -1,0 +1,60 @@
+
+name: SAV GP - Compilation test
+
+on:
+  push:
+    branches:
+      - sav-gp-test
+    paths:
+      - "src/zigbee_router/**"
+      - "manifests/sonoff/**"
+      - ".github/workflows/sav-gp-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compiler:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Recuperer les sources
+        uses: actions/checkout@v4
+
+      - name: Preparer le compilateur Silicon Labs
+        run: |
+          set -euo pipefail
+          docker build -t sav-gp-builder .
+          mkdir -p diagnostic-gp
+
+      - name: Compiler SONOFF Green Power
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/repo" \
+            -w /repo \
+            --entrypoint /bin/sh \
+            sav-gp-builder -c '
+              set -eu
+              /opt/venv/bin/python3 tools/build_project.py \
+                --manifest manifests/sonoff/sonoff_zbdonglee_zigbee_router.yaml \
+                --build-dir build \
+                --output-dir outputs \
+                --output gbl \
+                --output out \
+                --repo-owner ddajeedom \
+                --repo-hash "$(git rev-parse --short=8 HEAD)"
+            ' 2>&1 | tee diagnostic-gp/compilation.log
+
+      - name: Enregistrer les resultats
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SAV-GP-COMPILATION-TEST
+          path: |
+            diagnostic-gp/
+            outputs/
+          if-no-files-found: warn
+          retention-days: 14
