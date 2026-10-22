@@ -1,0 +1,66 @@
+name: SAV GP - Commissioning test (sans flash)
+
+'on':
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  compiler:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Récupérer la branche choisie
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Vérifier les sources sans les modifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p sav-resultats
+          printf '%s\n' "BRANCHE: $GITHUB_REF_NAME" "COMMIT: $(git rev-parse HEAD)" | tee sav-resultats/source.txt
+          test -f src/zigbee_router/app.c
+          test -f src/zigbee_router/zigbee_router.slcp
+          test -f src/zigbee_router/config/zcl/zcl_config.zap
+          test -f manifests/sonoff/sonoff_zbdonglee_zigbee_router.yaml
+          grep -q 'sav_cover' src/zigbee_router/app.c || { echo 'ERREUR: sav_cover absent de app.c'; exit 1; }
+          grep -q 'zigbee_green_power_server' src/zigbee_router/zigbee_router.slcp || { echo 'ERREUR: Green Power Server absent du SLCP'; exit 1; }
+          cp src/zigbee_router/app.c src/zigbee_router/zigbee_router.slcp src/zigbee_router/config/zcl/zcl_config.zap sav-resultats/
+          sha256sum src/zigbee_router/app.c src/zigbee_router/zigbee_router.slcp src/zigbee_router/config/zcl/zcl_config.zap > sav-resultats/SHA256_SOURCES.txt
+          printf '%s\n' 'CONFIGURATION GREEN POWER EXPERIMENTALE: compiler ne démontre PAS le commissioning Profalux.' > sav-resultats/NE_PAS_FLASHER.txt
+
+      - name: Compiler dans l'image Silicon Labs (aucune écriture sur la clé)
+        shell: bash
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/nerivec/silabs-firmware-builder@sha256:d376f63d95a0efc11f51623ccef2aa9a280eb565e283a634e5a533597870a0cb"
+          docker pull "$image"
+          docker image inspect "$image" --format '{{json .RepoDigests}}' > sav-resultats/image.json
+          docker run --rm \
+            -e GITHUB_REPOSITORY_OWNER="$OWNER" \
+            -v "$GITHUB_WORKSPACE:/repo" -w /repo --entrypoint /bin/sh "$image" -c '
+              set -eu
+              /opt/venv/bin/python3 tools/build_project.py \
+                --manifest manifests/sonoff/sonoff_zbdonglee_zigbee_router.yaml \
+                --build-dir build --output-dir outputs \
+                --output gbl --output out \
+                --repo-owner "$GITHUB_REPOSITORY_OWNER" --repo-hash "$(git rev-parse --short=8 HEAD)"
+            ' 2>&1 | tee sav-resultats/compilation.log
+          cp outputs/*.gbl outputs/*.out sav-resultats/
+          sha256sum sav-resultats/*.gbl > sav-resultats/SHA256_FIRMWARE.txt
+          # Inspection indicative seulement : si absent, ne pas déclarer le firmware valide.
+          if ! strings sav-resultats/*.out | grep -q 'sav_cover'; then
+            echo 'ATTENTION: sav_cover non trouvé dans le binaire produit.' | tee -a sav-resultats/NE_PAS_FLASHER.txt
+            exit 1
+          fi
+
+      - name: Conserver le diagnostic, même en cas d'échec
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: SAV-GP-COMMISSIONING-TEST-NON-VALIDE
+          path: sav-resultats/
+          if-no-files-found: warn
