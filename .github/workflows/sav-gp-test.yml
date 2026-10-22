@@ -42,6 +42,21 @@ jobs:
 
           echo "SAV_BUILD_IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
+      - name: Examiner la structure CLI du SDK
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/repo" \
+            -w /repo \
+            --entrypoint /bin/sh \
+            "$SAV_BUILD_IMAGE" -c '
+              set -eu
+              find / -name sl_cli_types.h 2>/dev/null \
+                | head -20 || true
+              find / -name sl_cli_command.h 2>/dev/null \
+                | head -20 || true
+            '
+
       - name: Compiler SONOFF Green Power
         run: |
           set -euo pipefail
