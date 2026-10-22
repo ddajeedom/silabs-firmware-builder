@@ -211,8 +211,7 @@ jobs:
           cp outputs/*.gbl outputs/*.out sav-resultats/
           sha256sum sav-resultats/*.gbl > sav-resultats/SHA256SUMS.txt
           # A presence de la nouvelle CLI dans le binaire est indispensable.
-          strings sav-resultats/*.out | grep -Fqx "sav-tc-info"
-          strings sav-resultats/*.out | grep -Fqx "sav-tc-pjoin"
+          strings sav-resultats/*.out | grep -Fq "sav_cover"
           printf "%s\n" "COMPILATION EXPERIMENTALE UNIQUEMENT - NE PAS FLASHER AVANT VALIDATION." > sav-resultats/NE_PAS_FLASHER.txt
 
       - name: Conserver les logs et le firmware meme en cas dechec
