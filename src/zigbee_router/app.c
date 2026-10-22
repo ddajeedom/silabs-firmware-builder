@@ -292,16 +292,21 @@ static void sav_gp_read_cmd(sl_cli_command_arg_t *args)
                               target, destination_ep, (unsigned long)source_id, (unsigned long)status);
 }
 
-static const sl_cli_command_info_t sav_gp_read_info =
-  SL_CLI_COMMAND(
-    sav_gp_read_cmd,
-    "GP Sink Table read request (lecture seule)",
-    "Adresse NWK, Source ID Green Power, endpoint",
+
+static const sl_cli_command_info_t sav_gp_read_info = {
+  .function = sav_gp_read_cmd,
+#if SL_CLI_HELP_DESCRIPTION_ENABLED
+  .help = "Lecture GP Sink Table (diagnostic)",
+  .arg_help = "NWK, Source ID, endpoint",
+#endif
+  .argument_type = {
     SL_CLI_ARG_UINT16,
     SL_CLI_ARG_UINT32,
     SL_CLI_ARG_UINT8,
     SL_CLI_ARG_END
-  );
+  }
+};
+
 static const sl_cli_command_entry_t sav_gp_table[] = {
   { "sav_gp_read", &sav_gp_read_info, false },
   { NULL, NULL, false }
