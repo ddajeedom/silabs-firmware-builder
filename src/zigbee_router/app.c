@@ -292,14 +292,25 @@ static void sav_gp_read_cmd(sl_cli_command_arg_t *args)
                               target, destination_ep, (unsigned long)source_id, (unsigned long)status);
 }
 
-
-static const sl_cli_command_info_t sav_gp_read_info = {
+/* Le SDK definit sl_cli_command_info_t avec un tableau flexible
+ * arg_type_list[]. Une structure de stockage de taille fixe permet
+ * d'initialiser tous les arguments sans avertissement missing-braces.
+ * Le debut de cette structure a exactement les memes champs que
+ * sl_cli_command_info_t (voir controles de compilation SDK). */
+static const struct {
+  sl_cli_command_func_t function;
+#if SL_CLI_HELP_DESCRIPTION_ENABLED
+  char *help;
+  char *arg_help;
+#endif
+  sl_cli_argument_type_t arg_type_list[4];
+} sav_gp_read_storage = {
   .function = sav_gp_read_cmd,
 #if SL_CLI_HELP_DESCRIPTION_ENABLED
-  .help = "Lecture GP Sink Table (diagnostic)",
-  .arg_help = "NWK, Source ID, endpoint",
+  .help = "GP Sink Table read request (lecture seule)",
+  .arg_help = "Adresse NWK, Source ID Green Power, endpoint",
 #endif
-  .argument_type = {
+  .arg_type_list = {
     SL_CLI_ARG_UINT16,
     SL_CLI_ARG_UINT32,
     SL_CLI_ARG_UINT8,
@@ -308,7 +319,7 @@ static const sl_cli_command_info_t sav_gp_read_info = {
 };
 
 static const sl_cli_command_entry_t sav_gp_table[] = {
-  { "sav_gp_read", &sav_gp_read_info, false },
+  { "sav_gp_read", (const sl_cli_command_info_t *)&sav_gp_read_storage, false },
   { NULL, NULL, false }
 };
 static sl_cli_command_group_t sav_gp_group = { { NULL }, false, sav_gp_table };
