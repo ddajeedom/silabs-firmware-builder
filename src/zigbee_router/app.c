@@ -276,9 +276,9 @@ static void sav_cover_cmd(sl_cli_command_arg_t *args)
   }
   uint16_t length = 0U;
   switch (action) {
-    case 0U: length = sl_zigbee_af_fill_command_window_covering_cluster_up_open(); break;
-    case 1U: length = sl_zigbee_af_fill_command_window_covering_cluster_stop(); break;
-    case 2U: length = sl_zigbee_af_fill_command_window_covering_cluster_down_close(); break;
+    case 0U: length = sl_zigbee_af_fill_command_window_covering_cluster_window_covering_up_open(); break;
+    case 1U: length = sl_zigbee_af_fill_command_window_covering_cluster_window_covering_stop(); break;
+    case 2U: length = sl_zigbee_af_fill_command_window_covering_cluster_window_covering_down_close(); break;
     default: return;
   }
   if (length == 0U) {
