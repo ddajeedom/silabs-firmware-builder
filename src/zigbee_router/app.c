@@ -142,11 +142,11 @@ void sl_zigbee_af_stack_status_cb(sl_status_t status)
 /** @brief Init
  * Application init function
  */
-static void sav_gp_register_cli(void);
+static void sav_cover_register_cli(void);
 
 void sl_zigbee_af_main_init_cb(void)
 {
-  sav_gp_register_cli();
+  sav_cover_register_cli();
   sl_zigbee_af_event_init(&commissioning_event, commissioning_event_handler);
 
   #if defined(SL_CATALOG_SIMPLE_BUTTON_PRESENT)
@@ -252,51 +252,45 @@ void sl_button_on_change(const sl_button_t *handle)
 #endif //#if (LARGE_NETWORK_TESTING == 0)
 
 
-/* -----------------------------------------------------------------------
- * SAV Green Power : demande en LECTURE SEULE, A VALIDER SUR SDK 2026.6.1.
- * Cette fonction n'est pas un commissionnement et n'ecrit aucune GP Sink Table.
- * La commande n'est declenchee que par l'utilisateur via le CLI.
- * ----------------------------------------------------------------------- */
+/* SAV / pilotage ZCL Window Covering, CLI volontairement explicite.
+ * Prototype experimental : a compiler ET valider avant tout flash.
+ * Ne modifie pas le role routeur, les cles ou le commissionnement. */
 #include "sl_cli.h"
 #include "sl_cli_instances.h"
-#include "app/framework/util/af-main.h"
-#include "app/framework/util/attribute-storage.h"
 #include <stdint.h>
 
-static void sav_gp_read_cmd(sl_cli_command_arg_t *args)
+static void sav_cover_cmd(sl_cli_command_arg_t *args)
 {
-  const uint16_t target = (uint16_t)sl_cli_get_argument_uint16(args, 0);
-  const uint32_t source_id = (uint32_t)sl_cli_get_argument_uint32(args, 1);
-  const uint8_t source_ep = 242U;
-  const uint8_t destination_ep = (uint8_t)sl_cli_get_argument_uint8(args, 2);
-  uint8_t ieee[8] = { 0 };
+  const uint16_t target = sl_cli_get_argument_uint16(args, 0);
+  const uint8_t endpoint = sl_cli_get_argument_uint8(args, 1);
+  const uint8_t action = sl_cli_get_argument_uint8(args, 2);
+  const uint8_t source_endpoint = 1U; /* A confirmer dans zcl_config.zap. */
+
   if (sl_zigbee_af_network_state() != SL_ZIGBEE_JOINED_NETWORK) {
-    sl_zigbee_app_debug_println("[SAV-GP] ECHEC: routeur hors reseau");
+    sl_zigbee_app_debug_println("[SAV-COVER] REFUS: SONOFF hors reseau");
     return;
   }
-  if (destination_ep == 0U || target == 0xFFFFU) {
-    sl_zigbee_app_debug_println("[SAV-GP] ECHEC: cible ou endpoint non valide");
+  if (target == 0U || target >= 0xFFF8U || endpoint == 0U || endpoint == 255U || action > 2U) {
+    sl_zigbee_app_debug_println("[SAV-COVER] REFUS: cible/endpoint/action invalides");
     return;
   }
-  /* GP address application ID 0 (4-octet Source ID), requete par GPD ID.
-   * L'option 0x00 exige verification sur une reponse reelle du GPS cible. */
-  const uint16_t len = sl_zigbee_af_fill_command_green_power_cluster_gp_sink_table_request(
-                         0x00U, source_id, ieee, 0U, 0U);
-  if (len == 0U) {
-    sl_zigbee_app_debug_println("[SAV-GP] ECHEC: preparation ZCL");
+  uint16_t length = 0U;
+  switch (action) {
+    case 0U: length = sl_zigbee_af_fill_command_window_covering_cluster_up_open(); break;
+    case 1U: length = sl_zigbee_af_fill_command_window_covering_cluster_stop(); break;
+    case 2U: length = sl_zigbee_af_fill_command_window_covering_cluster_down_close(); break;
+    default: return;
+  }
+  if (length == 0U) {
+    sl_zigbee_app_debug_println("[SAV-COVER] REFUS: remplissage ZCL impossible");
     return;
   }
-  sl_zigbee_af_set_command_endpoints(source_ep, destination_ep);
-  const sl_status_t status = sl_zigbee_af_send_command_unicast(SL_ZIGBEE_OUTGOING_DIRECT, target);
-  sl_zigbee_app_debug_println("[SAV-GP] REQUETE TX cible=0x%04X ep=%u gpd=0x%08lX status=0x%lX (pas de preuve de reponse)",
-                              target, destination_ep, (unsigned long)source_id, (unsigned long)status);
+  sl_zigbee_af_set_command_endpoints(source_endpoint, endpoint);
+  sl_status_t result = sl_zigbee_af_send_command_unicast(SL_ZIGBEE_OUTGOING_DIRECT, target);
+  sl_zigbee_app_debug_println("[SAV-COVER] TX addr=0x%04X ep=%u action=%u status=0x%lX (reception moteur non confirmee)",
+                              target, endpoint, action, (unsigned long)result);
 }
 
-/* Le SDK definit sl_cli_command_info_t avec un tableau flexible
- * arg_type_list[]. Une structure de stockage de taille fixe permet
- * d'initialiser tous les arguments sans avertissement missing-braces.
- * Le debut de cette structure a exactement les memes champs que
- * sl_cli_command_info_t (voir controles de compilation SDK). */
 static const struct {
   sl_cli_command_func_t function;
 #if SL_CLI_HELP_DESCRIPTION_ENABLED
@@ -304,28 +298,22 @@ static const struct {
   char *arg_help;
 #endif
   sl_cli_argument_type_t arg_type_list[4];
-} sav_gp_read_storage = {
-  .function = sav_gp_read_cmd,
+} sav_cover_info = {
+  .function = sav_cover_cmd,
 #if SL_CLI_HELP_DESCRIPTION_ENABLED
-  .help = "GP Sink Table read request (lecture seule)",
-  .arg_help = "Adresse NWK, Source ID Green Power, endpoint",
+  .help = "Window Covering test: action 0=up, 1=stop, 2=down",
+  .arg_help = "NWK(uint16) endpoint(uint8) action(uint8)",
 #endif
-  .arg_type_list = {
-    SL_CLI_ARG_UINT16,
-    SL_CLI_ARG_UINT32,
-    SL_CLI_ARG_UINT8,
-    SL_CLI_ARG_END
-  }
+  .arg_type_list = {SL_CLI_ARG_UINT16, SL_CLI_ARG_UINT8, SL_CLI_ARG_UINT8, SL_CLI_ARG_END}
 };
-
-static const sl_cli_command_entry_t sav_gp_table[] = {
-  { "sav_gp_read", (const sl_cli_command_info_t *)&sav_gp_read_storage, false },
+static const sl_cli_command_entry_t sav_cover_table[] = {
+  { "sav_cover", (const sl_cli_command_info_t *)&sav_cover_info, false },
   { NULL, NULL, false }
 };
-static sl_cli_command_group_t sav_gp_group = { { NULL }, false, sav_gp_table };
-static void sav_gp_register_cli(void)
+static sl_cli_command_group_t sav_cover_group = { { NULL }, false, sav_cover_table };
+static void sav_cover_register_cli(void)
 {
-  if (!sl_cli_command_add_command_group(sl_cli_default_handle, &sav_gp_group)) {
-    sl_zigbee_app_debug_println("[SAV-GP] CLI enregistrement impossible");
+  if (!sl_cli_command_add_command_group(sl_cli_default_handle, &sav_cover_group)) {
+    sl_zigbee_app_debug_println("[SAV-COVER] CLI enregistrement impossible");
   }
 }
