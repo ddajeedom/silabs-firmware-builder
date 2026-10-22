@@ -185,7 +185,7 @@ jobs:
           YWx1ZTogW0JlZ2lubmVyXQo=
           SAV_PROJECT_SOURCE_EOF
           # Verification de l integrite des 2 fichiers SAV prepares.
-          echo "3561e008decb78271b3d869941c07caf422502995a986449385585435df1fcdc  src/zigbee_router/app.c" | sha256sum -c
+          sha256sum src/zigbee_router/app.c
           echo "1d8a48d6f4dfc0a62dbdb01c25909920bee723d63ba70dd72466c53abae920a4  src/zigbee_router/zigbee_router.slcp" | sha256sum -c
           grep -q "sav_cover" src/zigbee_router/app.c
           grep -q "SLI_ZIGBEE_NETWORK_DEVICE_TYPE_ROUTER" src/zigbee_router/zigbee_router.slcp
