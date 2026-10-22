@@ -1,192 +1,3 @@
-/***************************************************************************//**
- * @file app.c
- * @brief Callbacks implementation and application specific code.
- *******************************************************************************
- * # License
- * <b>Copyright 2025 Silicon Laboratories Inc. www.silabs.com</b>
- *******************************************************************************
- *
- * The licensor of this software is Silicon Laboratories Inc. Your use of this
- * software is governed by the terms of Silicon Labs Master Software License
- * Agreement (MSLA) available at
- * www.silabs.com/about-us/legal/master-software-license-agreement. This
- * software is distributed to you in Source Code format and is governed by the
- * sections of the MSLA applicable to Source Code.
- *
- ******************************************************************************/
-
-#include "app/framework/include/af.h"
-#ifdef SL_COMPONENT_CATALOG_PRESENT
-#include "sl_component_catalog.h"
-#endif
-
-#ifdef SL_CATALOG_ZIGBEE_NETWORK_TEST_PRESENT
-#include "network_test_config.h"
-#endif //SL_CATALOG_ZIGBEE_NETWORK_TEST_PRESENT
-
-#if (LARGE_NETWORK_TESTING == 0)
-
-#include "btl_interface.h"
-#include "network-steering.h"
-#include "stack/include/zigbee-device-stack.h"
-#include "app/framework/plugin/basic/basic.h"
-
-#if defined(SL_CATALOG_LED0_PRESENT)
-#include "sl_led.h"
-#include "sl_simple_led_instances.h"
-
-#define led_turn_on(led) sl_led_turn_on(led)
-#define led_turn_off(led) sl_led_turn_off(led)
-#define led_toggle(led) sl_led_toggle(led)
-#define COMMISSIONING_STATUS_LED (&sl_led_led0)
-#else // !SL_CATALOG_LED0_PRESENT
-#define led_turn_on(led)
-#define led_turn_off(led)
-#define led_toggle(led)
-#endif // SL_CATALOG_LED0_PRESENT
-
-#if defined(SL_CATALOG_SIMPLE_BUTTON_PRESENT)
-#include "sl_simple_button.h"
-#include "sl_simple_button_instances.h"
-#include "stack/include/source-route.h"
-
-#define BUTTON_LONG_PRESS_TIME_MS 5000
-#define PERMIT_JOIN_TIMEOUT_SEC 180
-
-static bool button_long_press = false;
-static sl_zigbee_af_event_t button_event;
-static bool source_route_discovery_off = false;
-#endif // SL_CATALOG_SIMPLE_BUTTON_PRESENT
-
-#define NWK_STEERING_COOLDOWN_MS 10000
-
-static sl_zigbee_af_event_t commissioning_event;
-
-//---------------
-// Event handlers
-
-static void commissioning_event_handler(sl_zigbee_af_event_t *event)
-{
-  (void)event;
-
-  led_turn_on(COMMISSIONING_STATUS_LED);
-
-  if (sl_zigbee_af_network_state() != SL_ZIGBEE_JOINED_NETWORK) {
-    sl_status_t status = sl_zigbee_af_network_steering_start();
-    sl_zigbee_app_debug_println("Join network start: 0x%X", status);
-  }
-}
-
-#if defined(SL_CATALOG_SIMPLE_BUTTON_PRESENT)
-static void button_event_handler(sl_zigbee_af_event_t *event)
-{
-  (void)event;
-
-  sl_zigbee_network_status_t state = sl_zigbee_af_network_state();
-
-  if (state == SL_ZIGBEE_JOINED_NETWORK) {
-    if (button_long_press) {
-      sl_zigbee_app_debug_println("Btn long press: nwk up: leave network");
-      sl_zigbee_leave_network(SL_ZIGBEE_LEAVE_NWK_WITH_NO_OPTION);
-    } else {
-      if (source_route_discovery_off) {
-        source_route_discovery_off = false;
-        sl_zigbee_app_debug_println("Btn press: nwk up: enable src route disc");
-        sl_zigbee_set_source_route_discovery_mode(SL_ZIGBEE_SOURCE_ROUTE_DISCOVERY_ON);
-      } else {
-        source_route_discovery_off = true;
-        sl_zigbee_app_debug_println("Btn press: nwk up: disable src route disc");
-        sl_zigbee_set_source_route_discovery_mode(SL_ZIGBEE_SOURCE_ROUTE_DISCOVERY_OFF);
-      }
-    }
-  } else if (state == SL_ZIGBEE_NO_NETWORK) {
-    if (button_long_press) {
-      sl_zigbee_app_debug_println("Btn long press: nwk down: reboot btl");
-      bootloader_rebootAndInstall();
-    } else {
-      if (sl_zigbee_af_event_is_scheduled(&commissioning_event)) {
-        sl_zigbee_app_debug_println("Btn press: nwk down: stop nwk steering");
-        sl_zigbee_af_event_set_inactive(&commissioning_event);
-      } else {
-        sl_zigbee_app_debug_println("Btn press: nwk down: start nwk steering");
-        sl_zigbee_af_event_set_active(&commissioning_event);
-      }
-    }
-  }
-}
-#endif // SL_CATALOG_SIMPLE_BUTTON_PRESENT
-
-//----------------------
-// Implemented Callbacks
-
-/** @brief Stack Status
- *
- * This function is called by the application framework from the stack status
- * handler.  This callbacks provides applications an opportunity to be notified
- * of changes to the stack status and take appropriate action. The framework
- * will always process the stack status after the callback returns.
- */
-void sl_zigbee_af_stack_status_cb(sl_status_t status)
-{
-  if (status == SL_STATUS_NETWORK_DOWN) {
-    led_turn_off(COMMISSIONING_STATUS_LED);
-    sl_zigbee_af_event_set_delay_ms(&commissioning_event, NWK_STEERING_COOLDOWN_MS);
-  } else if (status == SL_STATUS_NETWORK_UP) {
-    // make some noise on start for reconnect
-    // (otherwise perceived as offline until pinged)
-    sl_zigbee_send_device_announcement();
-    led_turn_on(COMMISSIONING_STATUS_LED);
-  }
-}
-
-/** @brief Init
- * Application init function
- */
-void sl_zigbee_af_main_init_cb(void)
-{
-  sl_zigbee_af_event_init(&commissioning_event, commissioning_event_handler);
-
-  #if defined(SL_CATALOG_SIMPLE_BUTTON_PRESENT)
-  sl_zigbee_af_isr_event_init(&button_event, button_event_handler);
-  #endif // SL_CATALOG_SIMPLE_BUTTON_PRESENT
-
-  sl_zigbee_af_event_set_active(&commissioning_event);
-}
-
-/** @brief Complete network steering.
- *
- * This callback is fired when the Network Steering plugin is complete.
- *
- * @param status On success this will be set to SL_STATUS_OK to indicate a
- * network was joined successfully. On failure this will be the status code of
- * the last join or scan attempt.
- *
- * @param totalBeacons The total number of 802.15.4 beacons that were heard,
- * including beacons from different devices with the same PAN ID.
- *
- * @param joinAttempts The number of join attempts that were made to get onto
- * an open Zigbee network.
- *
- * @param finalState The finishing state of the network steering process. From
- * this, one is able to tell on which channel mask and with which key the
- * process was complete.
- */
-void sl_zigbee_af_network_steering_complete_cb(sl_status_t status,
-                                               uint8_t totalBeacons,
-                                               uint8_t joinAttempts,
-                                               uint8_t finalState)
-{
-  (void)totalBeacons;
-  (void)joinAttempts;
-  (void)finalState;
-
-  sl_zigbee_app_debug_println("Join network complete: 0x%X", status);
-
-  if (status != SL_STATUS_OK) {
-    led_turn_off(COMMISSIONING_STATUS_LED);
-    sl_zigbee_af_event_set_delay_ms(&commissioning_event, NWK_STEERING_COOLDOWN_MS);
-  }
-}
 
 /** @brief Reset To Factory Defaults
  *
@@ -247,3 +58,70 @@ void sl_button_on_change(const sl_button_t *handle)
 #endif // SL_CATALOG_SIMPLE_BUTTON_PRESENT
 
 #endif //#if (LARGE_NETWORK_TESTING == 0)
+
+
+/* SAV / pilotage ZCL Window Covering, CLI volontairement explicite.
+ * Prototype experimental : a compiler ET valider avant tout flash.
+ * Ne modifie pas le role routeur, les cles ou le commissionnement. */
+#include "sl_cli.h"
+#include "sl_cli_instances.h"
+#include <stdint.h>
+
+static void sav_cover_cmd(sl_cli_command_arg_t *args)
+{
+  const uint16_t target = sl_cli_get_argument_uint16(args, 0);
+  const uint8_t endpoint = sl_cli_get_argument_uint8(args, 1);
+  const uint8_t action = sl_cli_get_argument_uint8(args, 2);
+  const uint8_t source_endpoint = 1U; /* A confirmer dans zcl_config.zap. */
+
+  if (sl_zigbee_af_network_state() != SL_ZIGBEE_JOINED_NETWORK) {
+    sl_zigbee_app_debug_println("[SAV-COVER] REFUS: SONOFF hors reseau");
+    return;
+  }
+  if (target == 0U || target >= 0xFFF8U || endpoint == 0U || endpoint == 255U || action > 2U) {
+    sl_zigbee_app_debug_println("[SAV-COVER] REFUS: cible/endpoint/action invalides");
+    return;
+  }
+  uint16_t length = 0U;
+  switch (action) {
+    case 0U: length = sl_zigbee_af_fill_command_window_covering_cluster_window_covering_up_open(); break;
+    case 1U: length = sl_zigbee_af_fill_command_window_covering_cluster_window_covering_stop(); break;
+    case 2U: length = sl_zigbee_af_fill_command_window_covering_cluster_window_covering_down_close(); break;
+    default: return;
+  }
+  if (length == 0U) {
+    sl_zigbee_app_debug_println("[SAV-COVER] REFUS: remplissage ZCL impossible");
+    return;
+  }
+  sl_zigbee_af_set_command_endpoints(source_endpoint, endpoint);
+  sl_status_t result = sl_zigbee_af_send_command_unicast(SL_ZIGBEE_OUTGOING_DIRECT, target);
+  sl_zigbee_app_debug_println("[SAV-COVER] TX addr=0x%04X ep=%u action=%u status=0x%lX (reception moteur non confirmee)",
+                              target, endpoint, action, (unsigned long)result);
+}
+
+static const struct {
+  sl_cli_command_func_t function;
+#if SL_CLI_HELP_DESCRIPTION_ENABLED
+  char *help;
+  char *arg_help;
+#endif
+  sl_cli_argument_type_t arg_type_list[4];
+} sav_cover_info = {
+  .function = sav_cover_cmd,
+#if SL_CLI_HELP_DESCRIPTION_ENABLED
+  .help = "Window Covering test: action 0=up, 1=stop, 2=down",
+  .arg_help = "NWK(uint16) endpoint(uint8) action(uint8)",
+#endif
+  .arg_type_list = {SL_CLI_ARG_UINT16, SL_CLI_ARG_UINT8, SL_CLI_ARG_UINT8, SL_CLI_ARG_END}
+};
+static const sl_cli_command_entry_t sav_cover_table[] = {
+  { "sav_cover", (const sl_cli_command_info_t *)&sav_cover_info, false },
+  { NULL, NULL, false }
+};
+static sl_cli_command_group_t sav_cover_group = { { NULL }, false, sav_cover_table };
+static void sav_cover_register_cli(void)
+{
+  if (!sl_cli_command_add_command_group(sl_cli_default_handle, &sav_cover_group)) {
+    sl_zigbee_app_debug_println("[SAV-COVER] CLI enregistrement impossible");
+  }
+}
