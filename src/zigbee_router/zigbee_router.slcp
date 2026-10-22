@@ -46,6 +46,7 @@ component:
   - id: zigbee_counters
   - id: zigbee_green_power_common
   - id: zigbee_green_power_client
+  - id: zigbee_green_power_server
   - id: zigbee_interpan
   - id: zigbee_network_steering
   - id: zigbee_reporting
