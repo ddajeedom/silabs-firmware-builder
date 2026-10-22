@@ -37,9 +37,7 @@ jobs:
           TAG="${BUILD_HASH:0:16}"
           IMAGE="ghcr.io/nerivec/silabs-firmware-builder:$TAG"
           echo "Image utilisee : $IMAGE"
-
           docker pull "$IMAGE"
-
           echo "SAV_BUILD_IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
       - name: Examiner la structure CLI du SDK
@@ -51,11 +49,22 @@ jobs:
             --entrypoint /bin/sh \
             "$SAV_BUILD_IMAGE" -c '
               set -eu
-              find / -name sl_cli_types.h 2>/dev/null \
-                | head -20 || true
-              find / -name sl_cli_command.h 2>/dev/null \
-                | head -20 || true
-            '
+
+              FILE=$(find /root/.silabs \
+                -name sl_cli_types.h -print -quit)
+
+              if [ -z "$FILE" ]; then
+                echo "ERREUR : sl_cli_types.h introuvable"
+                exit 1
+              fi
+
+              echo "=== FICHIER SDK ==="
+              echo "$FILE"
+
+              echo "=== DEFINITION CLI ==="
+              grep -n -B 45 -A 15 \
+                "sl_cli_command_info_t" "$FILE"
+            ' 2>&1 | tee diagnostic-gp/structure-cli.log
 
       - name: Compiler SONOFF Green Power
         run: |
