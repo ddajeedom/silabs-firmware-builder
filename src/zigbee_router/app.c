@@ -323,6 +323,7 @@ static void sav_cover_register_cli(void)
 
 /* SAV Green Power: diagnostics only. No radio scan, pairing, key reads,
  * factory reset or network changes are performed by these commands. */
+static bool sav_gp_watch_enabled = false;
 static uint32_t sav_gp_pairing_event_count = 0U;
 static uint32_t sav_gp_timeout_event_count = 0U;
 
@@ -332,6 +333,7 @@ void sl_zigbee_af_green_power_server_pairing_complete_cb(uint8_t numberOfEndpoin
                                                           uint8_t *endpoints)
 {
   ++sav_gp_pairing_event_count;
+  if (!sav_gp_watch_enabled) { return; }
   sl_zigbee_app_debug_println("[SAV-GP] PAIRING_COMPLETE count=%lu endpoints=%u",
                               (unsigned long)sav_gp_pairing_event_count,
                               numberOfEndpoints);
@@ -346,6 +348,7 @@ void sl_zigbee_af_green_power_server_commissioning_timeout_cb(uint8_t commission
 {
   (void)endpoints;
   ++sav_gp_timeout_event_count;
+  if (!sav_gp_watch_enabled) { return; }
   sl_zigbee_app_debug_println("[SAV-GP] COMMISSIONING_TIMEOUT count=%lu type=%u endpoints=%u",
                               (unsigned long)sav_gp_timeout_event_count,
                               commissioningTimeoutType,
@@ -356,6 +359,7 @@ static void sav_gp_cmd(sl_cli_command_arg_t *args)
 {
   (void)args;
   sl_zigbee_app_debug_println("[SAV-GP] DIAGNOSTIC READ ONLY; not a discovery scan");
+  sl_zigbee_app_debug_println("[SAV-GP] watch=%s", sav_gp_watch_enabled ? "ON" : "OFF");
   sl_zigbee_app_debug_println("[SAV-GP] network=%s endpoint_gp=242",
                               sl_zigbee_af_network_state() == SL_ZIGBEE_JOINED_NETWORK
                               ? "JOINED" : "NOT_JOINED");
@@ -364,6 +368,37 @@ static void sav_gp_cmd(sl_cli_command_arg_t *args)
                               (unsigned long)sav_gp_timeout_event_count);
   sl_zigbee_app_debug_println("[SAV-GP] No automatic commissioning or Profalux detection");
 }
+
+/* Toggle logging of the existing Green Power Server callbacks.
+ * 1 = print callback events, 0 = silence; counters always accumulate.
+ * Does not open a commissioning window or scan the radio. */
+static void sav_gp_watch_cmd(sl_cli_command_arg_t *args)
+{
+  const uint8_t mode = sl_cli_get_argument_uint8(args, 0);
+  if (mode > 1U) {
+    sl_zigbee_app_debug_println("[SAV-GP] WATCH invalid value (use 0 or 1)");
+    return;
+  }
+  sav_gp_watch_enabled = (mode == 1U);
+  sl_zigbee_app_debug_println("[SAV-GP] WATCH %s (callback logs only; no discovery)",
+                              sav_gp_watch_enabled ? "ON" : "OFF");
+}
+
+static const struct {
+  sl_cli_command_func_t function;
+#if SL_CLI_HELP_DESCRIPTION_ENABLED
+  char *help;
+  char *arg_help;
+#endif
+  sl_cli_argument_type_t arg_type_list[2];
+} sav_gp_watch_info = {
+  .function = sav_gp_watch_cmd,
+#if SL_CLI_HELP_DESCRIPTION_ENABLED
+  .help = "Toggle Green Power callback logging (1=on, 0=off)",
+  .arg_help = "mode(uint8)",
+#endif
+  .arg_type_list = {SL_CLI_ARG_UINT8, SL_CLI_ARG_END}
+};
 
 static const struct {
   sl_cli_command_func_t function;
@@ -382,6 +417,7 @@ static const struct {
 };
 static const sl_cli_command_entry_t sav_gp_table[] = {
   { "sav_gp", (const sl_cli_command_info_t *)&sav_gp_info, false },
+  { "sav_gp_watch", (const sl_cli_command_info_t *)&sav_gp_watch_info, false },
   { NULL, NULL, false }
 };
 static sl_cli_command_group_t sav_gp_group = { { NULL }, false, sav_gp_table };
