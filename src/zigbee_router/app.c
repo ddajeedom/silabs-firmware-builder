@@ -143,10 +143,12 @@ void sl_zigbee_af_stack_status_cb(sl_status_t status)
  * Application init function
  */
 static void sav_cover_register_cli(void);
+static void sav_gp_register_cli(void);
 
 void sl_zigbee_af_main_init_cb(void)
 {
   sav_cover_register_cli();
+  sav_gp_register_cli();
   sl_zigbee_af_event_init(&commissioning_event, commissioning_event_handler);
 
   #if defined(SL_CATALOG_SIMPLE_BUTTON_PRESENT)
@@ -315,5 +317,77 @@ static void sav_cover_register_cli(void)
 {
   if (!sl_cli_command_add_command_group(sl_cli_default_handle, &sav_cover_group)) {
     sl_zigbee_app_debug_println("[SAV-COVER] CLI enregistrement impossible");
+  }
+}
+
+
+/* SAV Green Power: diagnostics only. No radio scan, pairing, key reads,
+ * factory reset or network changes are performed by these commands. */
+static uint32_t sav_gp_pairing_event_count = 0U;
+static uint32_t sav_gp_timeout_event_count = 0U;
+
+/* Standard GP Server callbacks, SDK 9.x. Successful linkage must be verified
+ * by the GitHub compiler; callbacks do not establish Profalux compatibility. */
+void sl_zigbee_af_green_power_server_pairing_complete_cb(uint8_t numberOfEndpoints,
+                                                          uint8_t *endpoints)
+{
+  ++sav_gp_pairing_event_count;
+  sl_zigbee_app_debug_println("[SAV-GP] PAIRING_COMPLETE count=%lu endpoints=%u",
+                              (unsigned long)sav_gp_pairing_event_count,
+                              numberOfEndpoints);
+  for (uint8_t i = 0U; (i < numberOfEndpoints) && (endpoints != NULL); ++i) {
+    sl_zigbee_app_debug_println("[SAV-GP] paired-endpoint=%u", endpoints[i]);
+  }
+}
+
+void sl_zigbee_af_green_power_server_commissioning_timeout_cb(uint8_t commissioningTimeoutType,
+                                                               uint8_t numberOfEndpoints,
+                                                               uint8_t *endpoints)
+{
+  (void)endpoints;
+  ++sav_gp_timeout_event_count;
+  sl_zigbee_app_debug_println("[SAV-GP] COMMISSIONING_TIMEOUT count=%lu type=%u endpoints=%u",
+                              (unsigned long)sav_gp_timeout_event_count,
+                              commissioningTimeoutType,
+                              numberOfEndpoints);
+}
+
+static void sav_gp_cmd(sl_cli_command_arg_t *args)
+{
+  (void)args;
+  sl_zigbee_app_debug_println("[SAV-GP] DIAGNOSTIC READ ONLY; not a discovery scan");
+  sl_zigbee_app_debug_println("[SAV-GP] network=%s endpoint_gp=242",
+                              sl_zigbee_af_network_state() == SL_ZIGBEE_JOINED_NETWORK
+                              ? "JOINED" : "NOT_JOINED");
+  sl_zigbee_app_debug_println("[SAV-GP] pairing_events=%lu commissioning_timeouts=%lu",
+                              (unsigned long)sav_gp_pairing_event_count,
+                              (unsigned long)sav_gp_timeout_event_count);
+  sl_zigbee_app_debug_println("[SAV-GP] No automatic commissioning or Profalux detection");
+}
+
+static const struct {
+  sl_cli_command_func_t function;
+#if SL_CLI_HELP_DESCRIPTION_ENABLED
+  char *help;
+  char *arg_help;
+#endif
+  sl_cli_argument_type_t arg_type_list[1];
+} sav_gp_info = {
+  .function = sav_gp_cmd,
+#if SL_CLI_HELP_DESCRIPTION_ENABLED
+  .help = "Green Power SAV diagnostic (read only)",
+  .arg_help = "",
+#endif
+  .arg_type_list = {SL_CLI_ARG_END}
+};
+static const sl_cli_command_entry_t sav_gp_table[] = {
+  { "sav_gp", (const sl_cli_command_info_t *)&sav_gp_info, false },
+  { NULL, NULL, false }
+};
+static sl_cli_command_group_t sav_gp_group = { { NULL }, false, sav_gp_table };
+static void sav_gp_register_cli(void)
+{
+  if (!sl_cli_command_add_command_group(sl_cli_default_handle, &sav_gp_group)) {
+    sl_zigbee_app_debug_println("[SAV-GP] CLI registration failed");
   }
 }
